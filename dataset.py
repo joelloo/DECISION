@@ -1,11 +1,13 @@
 import math
 import os
+from typing import Optional
 
 import cv2
 import numpy as np
 import pandas as pd
 import torch.utils.data as data
-from torch.utils.data import Sampler
+from torch.utils.data import Sampler, Dataset
+from torch.utils.data.distributed import DistributedSampler
 
 from augmentations import *
 
@@ -364,8 +366,80 @@ class BatchSampler(Sampler):
                     batch_lists.append(batch_list)
         if self.shuffle_on:
             random.shuffle(batch_lists)
-        flattened = [idx for batch_list in batch_lists for idx in batch_list]
-        return iter(flattened)
+        return iter(batch_lists)
 
     def __len__(self):
         return self.length
+
+
+# SubsetBatchSampler subclasses BatchSampler and implements a sampler
+# that can accept a subset of the batch, enabling distributed training
+# with DDP. SubsetBatchSampler overrides __init__ and group_samples to do this.
+class SubsetBatchSampler(BatchSampler):
+    def __init__(self, dataset, batch_size, indices=None, drop_last=True, shuffle=True):
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+        self.shuffle_on = shuffle
+        self.dataset = dataset
+        if indices is not None:
+            self.indices = indices
+        else:
+            self.indices = list(range(len(self.dataset)))
+        
+        self.length = len(list(self.__iter__()))
+
+    def group_samples(self):
+        forward, left, right, elevator = {}, {}, {}, {}
+        for dataset_idx in self.indices:
+            sample = self.dataset.dataset[dataset_idx]
+            intention = sample['intentions'][0]
+            flip = sample['flip']
+            sample_len = len(sample['intentions'])
+            if intention == 'forward':
+                dic = forward
+            elif (intention == 'left' and not flip) or (intention == 'right' and flip):
+                dic = left
+            elif (intention == 'right' and not flip) or (intention == 'left' and flip):
+                dic = right
+            elif intention == 'elevator':
+                dic = elevator
+            else:
+                raise NotImplementedError(f'unknown intention {intention}')
+            if sample_len not in dic.keys():
+                dic[sample_len] = []
+            dic[sample_len].append(dataset_idx)
+        return forward, left, right, elevator
+    
+
+class DistributedSubsetBatchSampler(DistributedSampler):
+    def __init__(
+            self, dataset: Dataset, num_replicas: Optional[int] = None, 
+            rank: Optional[int] = None, shuffle: bool = True, 
+            seed: int = 0, drop_last: bool = False, batch_size = 10
+    ) -> None:
+        super().__init__(dataset, num_replicas, rank, shuffle, seed, drop_last)
+        self.batch_size = batch_size
+
+    def __iter__(self):
+        # Length of dataset changes each time we re-init the dataset.
+        # Handle this by overriding and updating num_samples and total_size
+        # at each call for a new iterator.
+        if self.drop_last and len(self.dataset) % self.num_replicas != 0:
+            self.num_samples = math.ceil(
+                (len(self.dataset) - self.num_replicas) / self.num_replicas 
+            )
+        else:
+            self.num_samples = math.ceil(len(self.dataset) / self.num_replicas)
+        self.total_size = self.num_samples * self.num_replicas
+
+        # Generate a new indices subset from for this process, and batch it
+        indices = list(super().__iter__())
+        batch_sampler = SubsetBatchSampler(self.dataset, self.batch_size, 
+                                           indices=indices)
+        return iter(batch_sampler)
+
+    def __len__(self):
+        if self.drop_last:
+            return self.num_samples // self.batch_size
+        else:
+            return (self.num_samples + self.batch_size - 1) // self.batch_size
