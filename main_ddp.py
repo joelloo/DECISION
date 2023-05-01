@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 from typing import Callable
 from tqdm import tqdm
 
@@ -15,7 +16,7 @@ import os
 
 from models.inet import INet
 from dataset import SeqDataset, DistributedSubsetBatchSampler
-from utils import AverageMeter
+from utils import AverageMeter, Timer
 
 
 def ddp_setup(rank, world_size):
@@ -77,14 +78,21 @@ class Trainer:
         self.model.train()
 
         pg = tqdm(self.train_data, leave=False, total=len(self.train_data))
+        timer = Timer()
+        timer.tic()
+
         for obs, intentions, labels in pg:
-        # for idx, (obs, intentions, labels) in enumerate(self.train_data):
+            timer.toc("Start batch")
+            timer.tic()
+
             self._run_batch(obs, intentions, labels, running_loss)
-            # print("Finished", idx, "/", len(self.train_data), " on GPU:", self.gpu_id)
             pg.set_postfix({
                 'train loss': '{:.6f}'.format(running_loss.avg),
                 'epoch': '{:03d}'.format(epoch)
             })
+
+            timer.toc("End batch")
+            timer.tic()
 
         self.scheduler.step()
 
@@ -150,17 +158,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='simple distributed training job')
     parser.add_argument('--total_epochs', type=int, help='Total epochs to train the model', default=200)
     parser.add_argument('--save_every', type=int, help='How often to save a snapshot', default=40)
-    parser.add_argument('--batch_size', default=2, type=int, help='Input batch size on each device (default: 32)')
+    parser.add_argument('--batch_size', default=128, type=int, help='Input batch size on each device (default: 32)')
     parser.add_argument('--num_views', default=3, type=int, help='Number of cameras')
     parser.add_argument('--input_size', type=int, help='the size of input visual percepts', default=112)
-    parser.add_argument('--dataset_path', type=str, help='path to train dataset', default='sample_dataset')
+    parser.add_argument('--dataset_path', type=str, help='path to train dataset', default='/data/home/joel/storage/inet_data')
     parser.add_argument('--num_frames', type=int, default=1)
     parser.add_argument('--downsample_ratio', help='the ratio by which to downsample particular samples in the dataset',
                         type=float, default=0.1)
     parser.add_argument('--num_modes', type=int, default=3)
     parser.add_argument('--dropout', type=float, default=0.3)
     parser.add_argument('--frame_interval', help='sample 1 frame every x frames', type=int, default=1)
-    parser.add_argument('--world_size', help='number of GPUs to use', type=int, default=2)
+    parser.add_argument('--world_size', help='number of GPUs to use', type=int, default=4)
     args = parser.parse_args()
 
     world_size = torch.cuda.device_count() if args.world_size is None else args.world_size

@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-from utils import AverageMeter, save_model
+from utils import AverageMeter, Timer, save_model
 
 
 def train_inet(num_epochs, model, scheduler, optimizer, train_set, train_loader, test_set, test_loader, criterion,
@@ -23,11 +23,25 @@ def train_inet(num_epochs, model, scheduler, optimizer, train_set, train_loader,
         model.train()
         train_set.init_dataset()
         pg = tqdm(train_loader, leave=False, total=len(train_loader))
+
+        timer = Timer()
+        timer.tic()
+
         for i, (visual_full, intentions_full, labels_full) in enumerate(pg):
+            timer.toc("Start batch")
+            timer.tic()
+
             visual_full, intentions_full, labels_full = visual_full.cuda(), intentions_full.cuda(), \
                                                         labels_full[:, -1].cuda()
             left_full, mid_full, right_full = torch.split(visual_full, visual_full.size(4) // 3, dim=4)
+
+            timer.toc("Data handling")
+            timer.tic()
+
             outs = model(left_full, mid_full, right_full, intentions_full)
+
+            timer.toc("Model inference")
+            timer.tic()
 
             # compute loss
             loss = criterion(outs, labels_full)
@@ -40,6 +54,9 @@ def train_inet(num_epochs, model, scheduler, optimizer, train_set, train_loader,
                 'train loss': '{:.6f}'.format(running_loss.avg),
                 'epoch': '{:03d}'.format(epoch)
             })
+
+            timer.toc("Optimization -> end")
+            timer.tic()
 
         # test
         test_set.init_dataset()

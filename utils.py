@@ -1,5 +1,6 @@
 import csv
 import os
+import time
 
 import torch
 from torchvision import transforms
@@ -49,6 +50,22 @@ class Logger(object):
 
         self.logger.writerow(write_values)
         self.log_file.flush()
+
+
+class Timer:
+    def __init__(self):
+        self.tic_time = None
+
+    def tic(self):
+        self.tic_time = time.time()
+
+    def toc(self, print_info=""):
+        if self.tic_time is None:
+            print("Cannot toc before a tic!")
+        else:
+            toc_time = time.time()
+            print_str = "[" + print_info + "] Elapsed:"
+            print(print_str, toc_time - self.tic_time)
 
 
 def save_model(ckpt_dir, cp_name, model):
