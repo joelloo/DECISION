@@ -31,6 +31,11 @@ def ddp_setup(rank, world_size):
 
 
 class Trainer:
+    """
+    Implements training to be run on a single node in DDP.
+    Note that this class swaps all the BatchNorm layers to
+    SyncBatchNorm: https://pytorch.org/docs/stable/generated/torch.nn.SyncBatchNorm.html#torch.nn.SyncBatchNorm.convert_sync_batchnorm
+    """
     def __init__(
         self,
         model: torch.nn.Module,

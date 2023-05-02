@@ -372,10 +372,12 @@ class BatchSampler(Sampler):
         return self.length
 
 
-# SubsetBatchSampler subclasses BatchSampler and implements a sampler
-# that can accept a subset of the batch, enabling distributed training
-# with DDP. SubsetBatchSampler overrides __init__ and group_samples to do this.
 class SubsetBatchSampler(BatchSampler):
+    """
+    SubsetBatchSampler subclasses BatchSampler and implements a sampler
+    that can accept a subset of the batch, enabling distributed training
+    with DDP. SubsetBatchSampler overrides __init__ and group_samples to do this.
+    """
     def __init__(self, dataset, batch_size, indices=None, drop_last=True, shuffle=True):
         self.batch_size = batch_size
         self.drop_last = drop_last
@@ -412,6 +414,10 @@ class SubsetBatchSampler(BatchSampler):
     
 
 class DistributedSubsetBatchSampler(DistributedSampler):
+    """
+    Implementation of distributed batch sampler (and subset sampler)
+    borrowed from: https://discuss.pytorch.org/t/using-distributedsampler-in-combination-with-batch-sampler-to-make-sure-batches-have-sentences-of-similar-length/119824
+    """
     def __init__(
             self, dataset: Dataset, num_replicas: Optional[int] = None, 
             rank: Optional[int] = None, shuffle: bool = True, 
